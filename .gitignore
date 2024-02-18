@@ -1,0 +1,5 @@
+benignware/
+classedExeImg/
+context
+__pycache__
+*.key
