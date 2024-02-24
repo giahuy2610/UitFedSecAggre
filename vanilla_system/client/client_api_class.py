@@ -141,7 +141,10 @@ class ClientApi():
 
     def launch_fl_session(self, NoClient: str):
         X_train,y_train= self.load_img('train', self.clt_data_path)
-        X_train,y_train=self.dataImblanced( X_train,y_train )
+
+        X_train,y_train=self.dataImblanced( X_train,y_train)
+        X_train = X_train.reshape(X_train.shape[0], self.img_width, self.img_height)
+
         X_test,y_test=self.load_img('test', self.clt_data_path)
         # X_train = X_train/255
         # X_test = X_test/255
