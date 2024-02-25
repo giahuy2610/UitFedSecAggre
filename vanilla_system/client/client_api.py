@@ -1,5 +1,6 @@
 # File contains all api methods for client
-
+import sys
+sys.path.append("..")
 from fastapi import FastAPI
 from client_api_class import ClientApi
 

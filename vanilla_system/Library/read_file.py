@@ -49,7 +49,7 @@ def read_config_json_value(key):
     return data[key]
 
 def read_api_key(service):
-    with open('api_key.json','r') as file:
+    with open('../Library/api_key.json','r') as file:
         json_data = file.read()
     data = json.loads(json_data)
     return data[service]["key"],data[service]["secret"]

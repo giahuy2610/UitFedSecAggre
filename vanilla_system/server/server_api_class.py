@@ -1,10 +1,13 @@
+from datetime import datetime
 import json
 from pathlib import Path
+import time
 from typing import Callable, Dict
 import flwr as fl
 from strategy_avg import StrategyAvg 
 from strategy_dwavg import StrategyDwAvg 
 
+from UitFedSecAggre.vanilla_system.Library.export_file_handler import save_config_file, write_json_result_for_server
 class ServerApi():
     def loadConfig(self):
         print("config json is importing ------")
@@ -28,6 +31,7 @@ class ServerApi():
         self.clt_data_path = data['clt_data_path']
         self.he_enabled = data['he_enabled']
         
+        self.session=data['session']
         print("config json is imported ------")
 
 
@@ -40,7 +44,8 @@ class ServerApi():
             config = {
                 "batch_size": self.batch_size,
                 "local_epochs": self.clt_local_epochs,
-                "learning_rate": self.learning_rate
+                "learning_rate": self.learning_rate,
+                "round": server_round,
             }
             return config
             
@@ -48,6 +53,11 @@ class ServerApi():
 
     def launch_fl_session(self):
         """Start server and trigger update_strategy then connect to clients to perform fl session"""
+        start_time =time.time()
+        date_time = datetime.now()
+        current_time = date_time.strftime("%H:%M:%S")
+        date= date_time.strftime("%d/%m/%Y")
+        
         if (self.fl_aggregate_type == 0):
             # Create strategy
             strategy = StrategyAvg(
@@ -93,6 +103,17 @@ class ServerApi():
                 Path("../.cache/certificates/server.key").read_bytes(),
             )
         )
+        end_time = time.time()
+        total_time = end_time - start_time
+
+        dictionary = {
+            "date": date,
+            "start_time": current_time,
+            "total_time": total_time,
+        }
+        
+        write_json_result_for_server(strategy.result, self.session)
+        save_config_file('config_training.json', self.session, dictionary)
 
     def __init__(self) -> None:
         self.loadConfig()          

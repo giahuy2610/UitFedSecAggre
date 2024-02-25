@@ -38,6 +38,8 @@ class ClientApi():
         self.learning_rate = data['learning_rate']
         self.clt_local_epochs = data['clt_local_epochs']
         self.clt_data_path = data['clt_data_path']
+
+        self.session= data['session']
         print("config json is imported ------")
 
 
@@ -156,7 +158,7 @@ class ClientApi():
             server_address=self.fl_server_address, 
             client=Client(self.model_architecture  ,
                           X_train, y_train, 
-                          X_test, y_test, client_id),
+                          X_test, y_test, client_id, self.session),
             root_certificates=Path("../.cache/certificates/ca.crt").read_bytes(),
         )
 

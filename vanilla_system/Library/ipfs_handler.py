@@ -3,11 +3,11 @@ import pinatapy
 import requests
 import typing as tp
 import os
-from read_file import read_api_key
+from UitFedSecAggre.vanilla_system.Library.read_file import read_api_key
 def upload_file_to_ipfs(file_path,dest_folder_name):
     pinata_api_key = None
     pinata_secret_api_key = None
-    with open('api_key.json') as f:
+    with open('../Library/api_key.json') as f:
         data = json.load(f)
         pinata_api_key = data['pinata']
         pinata_secret_api_key = pinata_api_key['secret']
@@ -19,8 +19,8 @@ def upload_file_to_ipfs(file_path,dest_folder_name):
 #source: https://stackoverflow.com/questions/74350228/how-do-i-upload-a-folder-containing-metadata-to-pinata-using-a-script-in-python
 #Parameters: 
 #folder_path and directory before it
-#Ex: folder_path = 'server_result/1234567890'
-# => penultimate_file = 'server_result'
+#Ex: folder_path = 'server_results/1234567890'
+# => penultimate_file = 'server_results'
 def upload_folder_to_pinata(folder_path,penultimate_file):
     all_files: tp.List[str] = get_all_files(folder_path)
     key,secret=read_api_key('pinata')

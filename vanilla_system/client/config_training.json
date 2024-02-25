@@ -1,4 +1,5 @@
 {
+  "session": "25_2_2024",
   "model-s": "---------start----------",
   "data_categories": [
     "Locker",
@@ -34,7 +35,7 @@
   "fl_aggregate_type": 0,
   "federated-e": "---------end----------",
   "client-s": "---------start----------",
-  "clt_data_path": "../../../FederatedData/",
+  "clt_data_path": "D:/Course/KhoaLuan/MalwareData/FederatedData/",
   "clt_local_epochs": 2,
   "client-e": "---------end----------",
   "lof-s": "---------start----------",

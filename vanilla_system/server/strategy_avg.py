@@ -1,4 +1,4 @@
-import os
+import json
 import numpy as np
 from typing import  Dict, List, Optional, Tuple, Union
 from flwr.common.logger import log
@@ -17,6 +17,7 @@ from flwr.server.client_proxy import ClientProxy
 from flwr.common import Scalar
 from flwr.common import NDArrays
 from functools import reduce
+from UitFedSecAggre.vanilla_system.Library.export_file_handler import save_weights
 from outlier_factor import cosine_similarity, cosine_similarity_normalization
 
 class StrategyAvg(fl.server.strategy.FedAvg): 
@@ -104,7 +105,11 @@ class StrategyAvg(fl.server.strategy.FedAvg):
             print('running with HE')
         else:
             print("running without HE")
-
+        self.session=None
+        with open('config_training.json') as f:
+            data=json.load(f)
+            self.max_round = data['fl_num_rounds']
+            self.session=data['session']
 
     def custom_aggregate_fit(
         self,
@@ -188,13 +193,9 @@ class StrategyAvg(fl.server.strategy.FedAvg):
 
 
         aggregated_weights = self.custom_aggregate_fit(server_round, results, failures)
-        # if server_round ==3:
-        #     id=self.name
-        #     if not os.path.exists(f"./results/{id}"):
-        #             os.makedirs(f"./results/{id}")
-        #     np.save(f"./result/{id}/{id}_model_weights.npy", aggregated_weights)
-
-
+        if server_round == self.max_round:
+            save_weights(aggregated_weights, self.session)
+        
         return aggregated_weights
 
     def aggregate_evaluate(

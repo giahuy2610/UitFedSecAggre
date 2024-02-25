@@ -3,5 +3,8 @@ classedExeImg/
 context
 **/__pycache__/**
 *.key
-**/results/**
+**/server_results/**
 **/.cache/**
+**/api_key.json
+**/client_1_result/**
+**/client_2_result/**
