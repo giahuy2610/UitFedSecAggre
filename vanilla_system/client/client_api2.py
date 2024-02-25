@@ -15,7 +15,7 @@ control = ClientApi()
 #     return result_str
 
 
-control.launch_fl_session("1")
+control.launch_fl_session("2")
 
 #   Participate in the fl session
 @client.post("/client-participate")

@@ -1,5 +1,6 @@
 benignware/
 classedExeImg/
 context
-__pycache__
+**/__pycache__/**
 *.key
+**/result/**

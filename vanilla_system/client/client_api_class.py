@@ -1,4 +1,5 @@
 import json
+import string
 import tensorflow as tf
 from tensorflow_privacy.privacy.optimizers import dp_optimizer_keras
 import flwr as fl
@@ -139,17 +140,23 @@ class ClientApi():
         target_arr = np.array(target_arr)
         return img_arr, target_arr
 
-    def launch_fl_session(self, NoClient: str):
-        X_train,y_train= self.load_img('train', self.clt_data_path)
+    def launch_fl_session(self, client_id: string):
+        data_path=self.clt_data_path+'client'+str(client_id)+'/'
+        X_train,y_train= self.load_img('train', data_path)
 
         X_train,y_train=self.dataImblanced( X_train,y_train)
         X_train = X_train.reshape(X_train.shape[0], self.img_width, self.img_height)
 
-        X_test,y_test=self.load_img('test', self.clt_data_path)
+        X_test,y_test=self.load_img('test', data_path)
         # X_train = X_train/255
         # X_test = X_test/255
 
-        fl.client.start_numpy_client(server_address=self.fl_server_address, client=Client(self.model_architecture  ,X_train, y_train, X_test, y_test, NoClient))
+        fl.client.start_numpy_client(
+            server_address=self.fl_server_address, 
+            client=Client(self.model_architecture  ,
+                          X_train, y_train, 
+                          X_test, y_test, client_id)
+        )
 
     def __init__(self) -> None:
         self.loadModel()

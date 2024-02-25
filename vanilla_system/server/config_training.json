@@ -34,7 +34,7 @@
   "fl_aggregate_type": 1,
   "federated-e": "---------end----------",
   "client-s": "---------start----------",
-  "clt_data_path": "/Users/giahu/malwareClassification/classedExeImg/",
+  "clt_data_path": "../../classedExeImg/",
   "clt_local_epochs": 2,
   "client-e": "---------end----------",
   "lof-s": "---------start----------",

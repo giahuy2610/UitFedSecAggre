@@ -191,8 +191,8 @@ class StrategyAvg(fl.server.strategy.FedAvg):
         aggregated_weights = self.custom_aggregate_fit(server_round, results, failures)
         if server_round ==3:
             id=self.name
-            if not os.path.exists(f"./result/{id}"):
-                    os.makedirs(f"./result/{id}")
+            if not os.path.exists(f"./results/{id}"):
+                    os.makedirs(f"./results/{id}")
             np.save(f"./result/{id}/{id}_model_weights.npy", aggregated_weights)
 
 

@@ -1,5 +1,4 @@
 # The root Client class 
-
 import flwr as fl
 
 class Client(fl.client.NumPyClient):
