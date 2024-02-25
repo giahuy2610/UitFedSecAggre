@@ -3,4 +3,5 @@ classedExeImg/
 context
 **/__pycache__/**
 *.key
-**/result/**
+**/results/**
+**/.cache/**

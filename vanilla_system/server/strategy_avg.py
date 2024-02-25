@@ -81,7 +81,6 @@ class StrategyAvg(fl.server.strategy.FedAvg):
             fit_metrics_aggregation_fn = fit_metrics_aggregation_fn,
             evaluate_metrics_aggregation_fn=evaluate_metrics_aggregation_fn,
         )
-        self.name='noise_0.1'
         self.contribution={
             'total_data_size': 0
         }
@@ -189,11 +188,11 @@ class StrategyAvg(fl.server.strategy.FedAvg):
 
 
         aggregated_weights = self.custom_aggregate_fit(server_round, results, failures)
-        if server_round ==3:
-            id=self.name
-            if not os.path.exists(f"./results/{id}"):
-                    os.makedirs(f"./results/{id}")
-            np.save(f"./result/{id}/{id}_model_weights.npy", aggregated_weights)
+        # if server_round ==3:
+        #     id=self.name
+        #     if not os.path.exists(f"./results/{id}"):
+        #             os.makedirs(f"./results/{id}")
+        #     np.save(f"./result/{id}/{id}_model_weights.npy", aggregated_weights)
 
 
         return aggregated_weights

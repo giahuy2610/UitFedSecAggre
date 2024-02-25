@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import Callable, Dict
 import flwr as fl
 from strategy_avg import StrategyAvg 
@@ -86,6 +87,11 @@ class ServerApi():
             server_address= self.fl_server_address,
             config=fl.server.ServerConfig(num_rounds=self.fl_num_rounds),
             strategy=strategy,
+            certificates=(
+                Path("../.cache/certificates/ca.crt").read_bytes(),
+                Path("../.cache/certificates/server.pem").read_bytes(),
+                Path("../.cache/certificates/server.key").read_bytes(),
+            )
         )
 
     def __init__(self) -> None:

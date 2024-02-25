@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import string
 import tensorflow as tf
 from tensorflow_privacy.privacy.optimizers import dp_optimizer_keras
@@ -155,7 +156,8 @@ class ClientApi():
             server_address=self.fl_server_address, 
             client=Client(self.model_architecture  ,
                           X_train, y_train, 
-                          X_test, y_test, client_id)
+                          X_test, y_test, client_id),
+            root_certificates=Path("../.cache/certificates/ca.crt").read_bytes(),
         )
 
     def __init__(self) -> None:
