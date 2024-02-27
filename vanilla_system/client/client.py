@@ -3,7 +3,7 @@ import flwr as fl
 from UitFedSecAggre.vanilla_system.Library.export_file_handler import write_json_result_for_client
 
 class Client(fl.client.NumPyClient):
-    def __init__(self, model, X_train, y_train, X_test, y_test, client_id,session) -> None:
+    def __init__(self, model, X_train, y_train, X_test, y_test, client_id,session,wallet_address) -> None:
         super().__init__()
         self.X_train = X_train
         self.X_test = X_test
@@ -14,6 +14,7 @@ class Client(fl.client.NumPyClient):
         self.client_address = ''
 
         self.session_id = session
+        self.wallet_address = wallet_address
 
     def get_parameters(self,config):
         return self.model.get_weights()
@@ -42,7 +43,8 @@ class Client(fl.client.NumPyClient):
             "client_id": self.client_id,
             "loss": history.history["loss"][0],
             "accuracy": history.history["accuracy"][0],
-            "client_address": self.client_address,            
+            "client_address": self.client_address,
+            "wallet_address": self.wallet_address           
         }
         write_json_result_for_client(results, self.session_id, self.client_id, round)
         return parameters_prime, num_examples_train, results

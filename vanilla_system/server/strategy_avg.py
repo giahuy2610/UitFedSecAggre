@@ -19,6 +19,8 @@ from flwr.common import NDArrays
 from functools import reduce
 from UitFedSecAggre.vanilla_system.Library.export_file_handler import save_weights
 from outlier_factor import cosine_similarity, cosine_similarity_normalization
+from UitFedSecAggre.vanilla_system.Library.reward_service import RewardService
+reward_service = RewardService()
 
 class StrategyAvg(fl.server.strategy.FedAvg): 
     #   FedAvg
@@ -193,8 +195,12 @@ class StrategyAvg(fl.server.strategy.FedAvg):
 
 
         aggregated_weights = self.custom_aggregate_fit(server_round, results, failures)
+        
         if server_round == self.max_round:
             save_weights(aggregated_weights, self.session)
+            for result in results:
+                wallet_address=result[1].metrics['wallet_address']
+                reward_service.payEveryoneEqually(wallet_address, 10)
         
         return aggregated_weights
 

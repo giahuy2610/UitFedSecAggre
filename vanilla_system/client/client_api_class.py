@@ -40,6 +40,7 @@ class ClientApi():
         self.clt_data_path = data['clt_data_path']
 
         self.session= data['session']
+        self.wallet_address=None
         print("config json is imported ------")
 
 
@@ -83,8 +84,6 @@ class ClientApi():
             json_data = file.read()
         self.model_architecture = tf.keras.models.model_from_json(json_data)
         print("model json is imported ------")
-
-
 
     def generate_cnn_model(self):
         print("cnn model is creating -----")
@@ -144,7 +143,7 @@ class ClientApi():
         return img_arr, target_arr
 
     def launch_fl_session(self, client_id: string):
-        data_path=self.clt_data_path+'client'+str(client_id)+'/'
+        data_path=self.clt_data_path+'client'+client_id+'/'
         X_train,y_train= self.load_img('train', data_path)
 
         X_train,y_train=self.dataImblanced( X_train,y_train)
@@ -154,11 +153,14 @@ class ClientApi():
         # X_train = X_train/255
         # X_test = X_test/255
 
+        with open('client'+client_id+'.json','r') as file:
+            self.wallet_address = json.load(file)["address"] 
         fl.client.start_numpy_client(
             server_address=self.fl_server_address, 
             client=Client(self.model_architecture  ,
                           X_train, y_train, 
-                          X_test, y_test, client_id, self.session),
+                          X_test, y_test, client_id, 
+                          self.session,self.wallet_address),
             root_certificates=Path("../.cache/certificates/ca.crt").read_bytes(),
         )
 
