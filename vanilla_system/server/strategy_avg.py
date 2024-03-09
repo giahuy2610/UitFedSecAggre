@@ -13,6 +13,7 @@ from flwr.common import (
     parameters_to_ndarrays,
 )
 import tensorflow as tf
+from flwr.server.client_manager import ClientManager
 from flwr.server.client_proxy import ClientProxy
 from flwr.common import Scalar
 from flwr.common import NDArrays
@@ -20,6 +21,27 @@ from functools import reduce
 from outlier_factor import cosine_similarity, cosine_similarity_normalization
 
 class StrategyAvg(fl.server.strategy.FedAvg): 
+    def loadModel(self):
+        print("model json is importing ------")
+        ##  Load model json``
+        with open('model.json','r') as file:
+            json_data = file.read()
+        self.model_architecture = tf.keras.models.model_from_json(json_data)
+        print("model json is imported ------")
+
+
+    def init_global_model_parameter(self)->Parameters:
+        self.loadModel()
+
+        self.model_architecture.compile(
+            loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+            metrics=['accuracy'])
+        self.model_architecture.fit(
+            self.X_train,
+            self.y_train,
+        )
+        return ndarrays_to_parameters(self.model_architecture.get_weights())
+
     #   FedAvg
     def aggregate(self, results: List[Tuple[NDArrays, int]]) -> NDArrays:
         """Compute weighted average."""
@@ -35,15 +57,21 @@ class StrategyAvg(fl.server.strategy.FedAvg):
             for layer in weights:
                 # Loop each layer
                 weighted_layer.append(layer * num_examples)
+                print("x")
+
+            if (self.current_server_round == 1):
+                client_distance_array.append(cosine_similarity(weights[-1],parameters_to_ndarrays(self.current_global_weight)[-1]))
             if (self.current_server_round > 1):
+                print("sos", weights[-1])
                 client_distance_array.append(cosine_similarity(weights[-1],self.weight_history[self.current_server_round - 2]))
             weighted_weights.append(weighted_layer)
     
-        print(client_distance_array)
+        print("===LOF START===")
+        print(self.current_server_round, client_distance_array)
         client_distance_array = cosine_similarity_normalization(client_distance_array)
         self.threshold = np.average(client_distance_array)
-        
-        
+        print(self.threshold, client_distance_array)      
+        print("===LOF END===")
         # Compute average weights of each layer
         weights_prime: NDArrays = [
             reduce(np.add, layer_updates) / num_examples_total
@@ -52,6 +80,7 @@ class StrategyAvg(fl.server.strategy.FedAvg):
         
 
         self.weight_history.append(weights_prime[-1])
+        self.current_global_weight = weights_prime
         return weights_prime
 
     def __init__(self,
@@ -68,7 +97,10 @@ class StrategyAvg(fl.server.strategy.FedAvg):
         fit_metrics_aggregation_fn=None,
         evaluate_metrics_aggregation_fn=None,
         fl_aggregate_type = 0,
-        he_enabled=True
+        he_enabled=True,
+        initial_parameters=None,
+        X_train=None, 
+        y_train=None
         ) -> None:
         super().__init__(
             fraction_fit=fraction_fit,
@@ -80,6 +112,7 @@ class StrategyAvg(fl.server.strategy.FedAvg):
             on_fit_config_fn=on_fit_config_fn,
             fit_metrics_aggregation_fn = fit_metrics_aggregation_fn,
             evaluate_metrics_aggregation_fn=evaluate_metrics_aggregation_fn,
+            initial_parameters = initial_parameters
         )
         self.name='noise_0.1'
         self.contribution={
@@ -100,12 +133,18 @@ class StrategyAvg(fl.server.strategy.FedAvg):
         self.weight_history = []
         self.current_server_round = 0
         self.he_enabled = he_enabled
-           
-        if self.he_enabled:
-            print('running with HE')
-        else:
-            print("running without HE")
+        self.X_train = X_train
+        self.y_train = y_train
 
+        self.current_global_weight = self.init_global_model_parameter()
+
+
+    def initialize_parameters(
+        self, client_manager: ClientManager
+    ) -> Optional[Parameters]:
+        print("FederatedMalwareStrategy initialize_parameters")  
+        """Initialize global model parameters."""
+        return None
 
     def custom_aggregate_fit(
         self,
@@ -195,7 +234,6 @@ class StrategyAvg(fl.server.strategy.FedAvg):
                     os.makedirs(f"./result/{id}")
             np.save(f"./result/{id}/{id}_model_weights.npy", aggregated_weights)
 
-
         return aggregated_weights
 
     def aggregate_evaluate(
@@ -204,6 +242,14 @@ class StrategyAvg(fl.server.strategy.FedAvg):
         results,
         failures,
     ) -> Tuple[Optional[float], Dict[str, Scalar]]:
+
+        self.model_architecture.set_weights(self.current_global_weight)
+        loss, accuracy = self.model_architecture.evaluate(self.X_train, self.y_train)
+        print("lol", loss, accuracy)
+
+
+
+
 
         """Aggregate evaluation accuracy using weighted average."""
         if not results:

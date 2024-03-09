@@ -3,18 +3,55 @@ from typing import Callable, Dict
 import flwr as fl
 from strategy_avg import StrategyAvg 
 from strategy_dwavg import StrategyDwAvg 
+from flwr.common import (
+    Parameters,
+    ndarrays_to_parameters,
+)
+import tensorflow as tf
+import os
+import cv2
+import numpy as np
 
 class ServerApi():
+    def load_img(self, datadir):
+        img_arr = []
+        target_arr = []
+        Categories = self.data_categories
+        
+        for i in Categories:
+            print(f'loading... category : {i}')
+            path = os.path.join(datadir, i)
+            
+            for img_file in os.listdir(path):
+                # Đọc ảnh với OpenCV
+                img = cv2.imread(os.path.join(path, img_file),cv2.IMREAD_GRAYSCALE)
+                
+                # Resize ảnh về kích thước 64x64
+                img = cv2.resize(img, (int(self.img_width), int(self.img_height)))
+                
+                # Thêm ảnh vào mảng img_arr
+                img_arr.append(img)
+                
+                # Thêm nhãn tương ứng vào mảng target_arr
+                target_arr.append(Categories.index(i))
+            
+            print(f'loaded category: {i} successfully')
+        
+        # Chuyển đổi các mảng thành mảng NumPy
+        img_arr = np.array(img_arr)
+        target_arr = np.array(target_arr)
+        return img_arr, target_arr
+
     def loadConfig(self):
         print("config json is importing ------")
         ##  Load config json
         with open('./config_training.json','r') as file:
             json_data = file.read()
         data = json.loads(json_data)
-        self.l2_norm_clip = data['df_l2_norm_clip']
-        self.noise_multiplier = data['df_noise_multiplier']
-        self.num_microbatches = data['df_num_microbatches']
-        self.df_optimizer_type = data["df_optimizer_type"]
+        self.data_categories = data["data_categories"]
+        self.img_width = data["img_width"]
+        self.img_height = data["img_height"]
+        self.img_dim = data["img_dim"]
         self.fl_num_rounds = data['fl_num_rounds']
         self.fl_min_fit_clients = data['fl_min_fit_clients']     
         self.fl_min_evaluate_clients = data['fl_min_evaluate_clients']
@@ -24,9 +61,9 @@ class ServerApi():
         self.batch_size = data['batch_size']
         self.learning_rate = data['learning_rate']
         self.clt_local_epochs = data['clt_local_epochs']
-        self.clt_data_path = data['clt_data_path']
+        self.data_dir_path = data['data_dir_path']
         self.he_enabled = data['he_enabled']
-        
+        self.X_train, self.y_train= self.load_img(self.data_dir_path)
         print("config json is imported ------")
 
 
@@ -61,7 +98,9 @@ class ServerApi():
                     #fit_metrics_aggregation_fn=weighted_average,
                     # evaluate_metrics_aggregation_fn=weighted_average,
                     fl_aggregate_type = self.fl_aggregate_type,
-                    he_enabled=self.he_enabled
+                    he_enabled=self.he_enabled, 
+                    X_train=self.X_train,
+                    y_train=self.y_train
             )
                    
         elif (self.fl_aggregate_type == 1):
@@ -78,7 +117,9 @@ class ServerApi():
                     #fit_metrics_aggregation_fn=weighted_average,
                     # evaluate_metrics_aggregation_fn=weighted_average,
                     fl_aggregate_type = self.fl_aggregate_type,
-                    he_enabled=self.he_enabled
+                    he_enabled=self.he_enabled, 
+                    X_train=self.X_train,
+                    y_train=self.y_train
             )
 
         # Start Flower server
