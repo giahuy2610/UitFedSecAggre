@@ -6,8 +6,8 @@ from typing import Callable, Dict
 import flwr as fl
 from strategy_avg import StrategyAvg 
 from strategy_dwavg import StrategyDwAvg 
-
 from UitFedSecAggre.vanilla_system.Library.export_file_handler import save_config_file, write_json_result_for_server
+
 class ServerApi():
     def loadConfig(self):
         print("config json is importing ------")
@@ -15,10 +15,6 @@ class ServerApi():
         with open('./config_training.json','r') as file:
             json_data = file.read()
         data = json.loads(json_data)
-        self.l2_norm_clip = data['df_l2_norm_clip']
-        self.noise_multiplier = data['df_noise_multiplier']
-        self.num_microbatches = data['df_num_microbatches']
-        self.df_optimizer_type = data["df_optimizer_type"]
         self.fl_num_rounds = data['fl_num_rounds']
         self.fl_min_fit_clients = data['fl_min_fit_clients']     
         self.fl_min_evaluate_clients = data['fl_min_evaluate_clients']
@@ -31,9 +27,9 @@ class ServerApi():
         self.clt_data_path = data['clt_data_path']
         self.he_enabled = data['he_enabled']
         
+        
         self.session=data['session']
         print("config json is imported ------")
-
 
     def get_on_fit_config_fn(self) -> Callable[[int], Dict[str, str]]:
         """Return training configuration dict for each round.
@@ -72,7 +68,7 @@ class ServerApi():
                     #fit_metrics_aggregation_fn=weighted_average,
                     # evaluate_metrics_aggregation_fn=weighted_average,
                     fl_aggregate_type = self.fl_aggregate_type,
-                    he_enabled=self.he_enabled
+                    he_enabled=self.he_enabled,
             )
                    
         elif (self.fl_aggregate_type == 1):
@@ -114,6 +110,8 @@ class ServerApi():
         
         write_json_result_for_server(strategy.result, self.session)
         save_config_file('config_training.json', self.session, dictionary)
+
+    
 
     def __init__(self) -> None:
         self.loadConfig()          

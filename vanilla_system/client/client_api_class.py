@@ -107,7 +107,7 @@ class ClientApi():
                 num_microbatches= self.num_microbatches) 
 
         self.model_architecture.compile(optimizer=optimizer,
-                    loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+                    loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction=tf.losses.Reduction.NONE),
                     metrics=['accuracy'])
         print("cnn model is created ------")
         return self.model_architecture
@@ -145,7 +145,11 @@ class ClientApi():
     def launch_fl_session(self, client_id: string):
         data_path=self.clt_data_path+'client'+client_id+'/'
         X_train,y_train= self.load_img('train', data_path)
-
+        if self.df_optimizer_type !=0:
+            # Làm tròn số lượng ảnh train về bội số của batch_size để số lượng ảnh chia hết cho microbatches
+            round_size = (X_train.shape[0]//self.batch_size)*self.batch_size
+            X_train = X_train[:round_size]
+            y_train = y_train[:round_size]
         X_train,y_train=self.dataImblanced( X_train,y_train)
         X_train = X_train.reshape(X_train.shape[0], self.img_width, self.img_height)
 
