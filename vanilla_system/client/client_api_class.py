@@ -1,4 +1,6 @@
 import json
+from pathlib import Path
+import string
 import tensorflow as tf
 from tensorflow_privacy.privacy.optimizers import dp_optimizer_keras
 import flwr as fl
@@ -36,6 +38,9 @@ class ClientApi():
         self.learning_rate = data['learning_rate']
         self.clt_local_epochs = data['clt_local_epochs']
         self.clt_data_path = data['clt_data_path']
+
+        self.session= data['session']
+        self.wallet_address=None
         print("config json is imported ------")
 
 
@@ -80,8 +85,6 @@ class ClientApi():
         self.model_architecture = tf.keras.models.model_from_json(json_data)
         print("model json is imported ------")
 
-
-
     def generate_cnn_model(self):
         print("cnn model is creating -----")
         match self.df_optimizer_type :
@@ -104,7 +107,7 @@ class ClientApi():
                 num_microbatches= self.num_microbatches) 
 
         self.model_architecture.compile(optimizer=optimizer,
-                    loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+                    loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction=tf.losses.Reduction.NONE),
                     metrics=['accuracy'])
         print("cnn model is created ------")
         return self.model_architecture
@@ -139,17 +142,31 @@ class ClientApi():
         target_arr = np.array(target_arr)
         return img_arr, target_arr
 
-    def launch_fl_session(self, NoClient: str):
-        X_train,y_train= self.load_img('train', self.clt_data_path)
-
+    def launch_fl_session(self, client_id: string):
+        data_path=self.clt_data_path+'client'+client_id+'/'
+        X_train,y_train= self.load_img('train', data_path)
+        if self.df_optimizer_type !=0:
+            # Làm tròn số lượng ảnh train về bội số của batch_size để số lượng ảnh chia hết cho microbatches
+            round_size = (X_train.shape[0]//self.batch_size)*self.batch_size
+            X_train = X_train[:round_size]
+            y_train = y_train[:round_size]
         X_train,y_train=self.dataImblanced( X_train,y_train)
         X_train = X_train.reshape(X_train.shape[0], self.img_width, self.img_height)
 
-        X_test,y_test=self.load_img('test', self.clt_data_path)
+        X_test,y_test=self.load_img('test', data_path)
         # X_train = X_train/255
         # X_test = X_test/255
 
-        fl.client.start_numpy_client(server_address=self.fl_server_address, client=Client(self.model_architecture  ,X_train, y_train, X_test, y_test, NoClient))
+        with open('client'+client_id+'.json','r') as file:
+            self.wallet_address = json.load(file)["address"] 
+        fl.client.start_numpy_client(
+            server_address=self.fl_server_address, 
+            client=Client(self.model_architecture  ,
+                          X_train, y_train, 
+                          X_test, y_test, client_id, 
+                          self.session,self.wallet_address),
+            root_certificates=Path("../.cache/certificates/ca.crt").read_bytes(),
+        )
 
     def __init__(self) -> None:
         self.loadModel()

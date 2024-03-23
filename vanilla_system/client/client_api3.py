@@ -1,6 +1,5 @@
 # File contains all api methods for client
-import sys
-sys.path.append("..")
+
 from fastapi import FastAPI
 from client_api_class import ClientApi
 
@@ -16,7 +15,7 @@ control = ClientApi()
 #     return result_str
 
 
-control.launch_fl_session("1")
+control.launch_fl_session("3")
 
 #   Participate in the fl session
 @client.post("/client-participate")

@@ -43,4 +43,6 @@ class StrategyDwAvg(StrategyAvg):
             reduce(np.add, layer_updates) / num_examples_total
             for layer_updates in zip(*weighted_weights)
         ]
+        # results: List[Tuple[ClientProxy, FitRes]]
+        # FitRes: parameters: Parameters , num_examples: int , metrics: Optional[Metrics] = None
         return weights_prime

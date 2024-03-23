@@ -1,5 +1,8 @@
-import os
+import json
 import numpy as np
+import tensorflow as tf
+import os
+import cv2
 from typing import  Dict, List, Optional, Tuple, Union
 from flwr.common.logger import log
 from logging import WARNING
@@ -17,7 +20,11 @@ from flwr.server.client_proxy import ClientProxy
 from flwr.common import Scalar
 from flwr.common import NDArrays
 from functools import reduce
+from UitFedSecAggre.vanilla_system.Library.export_file_handler import save_weights
 from outlier_factor import cosine_similarity, cosine_similarity_normalization
+from UitFedSecAggre.vanilla_system.Library.reward_service import RewardService
+from tensorflow_privacy.privacy.optimizers import dp_optimizer_keras
+reward_service = RewardService()
 
 class StrategyAvg(fl.server.strategy.FedAvg): 
     #   FedAvg
@@ -68,7 +75,7 @@ class StrategyAvg(fl.server.strategy.FedAvg):
         fit_metrics_aggregation_fn=None,
         evaluate_metrics_aggregation_fn=None,
         fl_aggregate_type = 0,
-        he_enabled=True
+        he_enabled=True,
         ) -> None:
         super().__init__(
             fraction_fit=fraction_fit,
@@ -81,16 +88,18 @@ class StrategyAvg(fl.server.strategy.FedAvg):
             fit_metrics_aggregation_fn = fit_metrics_aggregation_fn,
             evaluate_metrics_aggregation_fn=evaluate_metrics_aggregation_fn,
         )
-        self.name='noise_0.1'
         self.contribution={
             'total_data_size': 0
         }
         self.result={
             'aggregated_loss':{
-                0:0
+                'server':{},
+                'client':{}
             },
             'aggregated_accuracy':{
-                0:0
+                # 0:0
+                'server':{},
+                'client':{}
             }
         }
         self.dw_weight = {}
@@ -100,12 +109,34 @@ class StrategyAvg(fl.server.strategy.FedAvg):
         self.weight_history = []
         self.current_server_round = 0
         self.he_enabled = he_enabled
-           
+
         if self.he_enabled:
             print('running with HE')
         else:
             print("running without HE")
+        self.session=None
+        with open('config_training.json') as f:
+            data=json.load(f)
+            self.max_round = data['fl_num_rounds']
+            self.session=data['session']
 
+            self.img_width = data["img_width"]
+            self.img_height = data["img_height"]
+            self.img_dim = data["img_dim"]
+            self.data_dir_path = data['data_dir_path']
+            self.data_categories = data['data_categories']
+
+            self.df_optimizer_type = data["df_optimizer_type"]
+            self.l2_norm_clip = data['df_l2_norm_clip']
+            self.noise_multiplier = data['df_noise_multiplier']
+            self.num_microbatches = data['df_num_microbatches']
+            self.model=self.generate_cnn_model()
+            self.X_valid, self.y_valid = self.load_img('valid', self.data_dir_path)
+            self.current_round_weight=None
+            if self.model is None:
+                raise ValueError("Data is not set. Please set the model before calling aggregate_evaluate.")
+            if self.X_valid is None:
+                raise ValueError("Data is not set. Please set the data before calling aggregate_evaluate.")
 
     def custom_aggregate_fit(
         self,
@@ -189,13 +220,13 @@ class StrategyAvg(fl.server.strategy.FedAvg):
 
 
         aggregated_weights = self.custom_aggregate_fit(server_round, results, failures)
-        if server_round ==3:
-            id=self.name
-            if not os.path.exists(f"./result/{id}"):
-                    os.makedirs(f"./result/{id}")
-            np.save(f"./result/{id}/{id}_model_weights.npy", aggregated_weights)
-
-
+        
+        if server_round == self.max_round:
+            save_weights(aggregated_weights, self.session)
+            for result in results:
+                wallet_address=result[1].metrics['wallet_address']
+                reward_service.payEveryoneEqually(wallet_address, 10)
+        self.current_round_weight = parameters_to_ndarrays(aggregated_weights[0])
         return aggregated_weights
 
     def aggregate_evaluate(
@@ -211,14 +242,81 @@ class StrategyAvg(fl.server.strategy.FedAvg):
         # Call aggregate_evaluate from base class (FedAvg) to aggregate loss and metrics
         aggregated_loss, aggregated_metrics = super().aggregate_evaluate(server_round, results, failures)
 
+        #server tự evaluate
+        self.model.set_weights(self.current_round_weight)
+        aggregated_loss, aggregated_accuracy = self.model.evaluate(self.X_valid, self.y_valid)
+        self.result['aggregated_loss']['server'][server_round]=aggregated_loss
+        self.result['aggregated_accuracy']['server'][server_round]=aggregated_accuracy
+
+        #eval theo client
         # Weigh accuracy of each client by number of examples used
         accuracies = [r.metrics["accuracy"] * r.num_examples for _, r in results]
         examples = [r.num_examples for _, r in results]
 
         # Aggregate and print custom metric
         aggregated_accuracy = sum(accuracies) / sum(examples)
-        self.result['aggregated_loss'][server_round]=aggregated_loss
-        self.result['aggregated_accuracy'][server_round]=aggregated_accuracy
-
+        self.result['aggregated_loss']['client'][server_round]=aggregated_loss
+        self.result['aggregated_accuracy']['client'][server_round]=aggregated_accuracy
+        
         # Return aggregated loss and metrics (i.e., aggregated accuracy)
         return aggregated_loss, {"accuracy": aggregated_accuracy}
+    
+    def generate_cnn_model(self):
+        print("cnn model is creating -----")
+        with open('model.json','r') as file:
+            json_data = file.read()
+        self.model_architecture = tf.keras.models.model_from_json(json_data)
+        match self.df_optimizer_type :
+            case 0:
+                optimizer = "adam"
+            case 1:
+                optimizer=dp_optimizer_keras.DPKerasAdamOptimizer(
+                l2_norm_clip= float(self.l2_norm_clip),
+                noise_multiplier= float(self.noise_multiplier),
+                num_microbatches= self.num_microbatches)      
+            case 2:
+                optimizer=dp_optimizer_keras.DPKerasSGDOptimizer(
+                l2_norm_clip= float(self.l2_norm_clip),
+                noise_multiplier= float(self.noise_multiplier),
+                num_microbatches= self.num_microbatches)      
+            case 3:
+                optimizer=dp_optimizer_keras.DPKerasAdagradOptimizer(
+                l2_norm_clip= float(self.l2_norm_clip),
+                noise_multiplier= float(self.noise_multiplier),
+                num_microbatches= self.num_microbatches) 
+
+        self.model_architecture.compile(optimizer=optimizer,
+                    loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction=tf.losses.Reduction.NONE),
+                    metrics=['accuracy'])
+        print("cnn model is created ------")
+        return self.model_architecture
+
+    def load_img(self, data_type, datadir):
+        img_arr = []
+        target_arr = []
+        datadir = datadir + data_type
+        Categories = self.data_categories
+        
+        for i in Categories:
+            print(f'loading... category : {i}')
+            path = os.path.join(datadir, i)
+            
+            for img_file in os.listdir(path):
+                # Đọc ảnh với OpenCV
+                img = cv2.imread(os.path.join(path, img_file),cv2.IMREAD_GRAYSCALE)
+                
+                # Resize ảnh về kích thước 64x64
+                img = cv2.resize(img, (int(self.img_width), int(self.img_height)))
+                
+                # Thêm ảnh vào mảng img_arr
+                img_arr.append(img)
+                
+                # Thêm nhãn tương ứng vào mảng target_arr
+                target_arr.append(Categories.index(i))
+            
+            print(f'loaded category: {i} successfully')
+        
+        # Chuyển đổi các mảng thành mảng NumPy
+        img_arr = np.array(img_arr)
+        target_arr = np.array(target_arr)
+        return img_arr, target_arr
