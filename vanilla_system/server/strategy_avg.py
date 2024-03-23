@@ -1,5 +1,6 @@
 import json
 import numpy as np
+from sklearn.metrics import f1_score
 import tensorflow as tf
 import os
 import cv2
@@ -100,7 +101,8 @@ class StrategyAvg(fl.server.strategy.FedAvg):
                 # 0:0
                 'server':{},
                 'client':{}
-            }
+            },
+            'f1_score':{}
         }
         self.dw_weight = {}
         self.dw_accp = {}
@@ -221,8 +223,8 @@ class StrategyAvg(fl.server.strategy.FedAvg):
 
         aggregated_weights = self.custom_aggregate_fit(server_round, results, failures)
         
+        save_weights(aggregated_weights, self.session, server_round)
         if server_round == self.max_round:
-            save_weights(aggregated_weights, self.session)
             for result in results:
                 wallet_address=result[1].metrics['wallet_address']
                 reward_service.payEveryoneEqually(wallet_address, 10)
@@ -257,7 +259,11 @@ class StrategyAvg(fl.server.strategy.FedAvg):
         aggregated_accuracy = sum(accuracies) / sum(examples)
         self.result['aggregated_loss']['client'][server_round]=aggregated_loss
         self.result['aggregated_accuracy']['client'][server_round]=aggregated_accuracy
-        
+
+        y_pred = self.model.predict(self.X_valid)
+        y_pred_bool = np.argmax(y_pred, axis=1)
+        self.result['f1_score'][server_round]=f1_score(self.y_valid, y_pred_bool , average="macro",zero_division=0)
+
         # Return aggregated loss and metrics (i.e., aggregated accuracy)
         return aggregated_loss, {"accuracy": aggregated_accuracy}
     

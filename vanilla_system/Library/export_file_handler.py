@@ -7,12 +7,13 @@ def make_dir_if_not_exists(dirs):
     if not os.path.exists(dirs):
         os.makedirs(dirs)
 
-def save_weights(aggregated_weights, session_id):
+def save_weights(aggregated_weights, session_id, round):
     make_dir_if_not_exists('./server_results')
 
     session_folder =f'./server_results/{session_id}'
     make_dir_if_not_exists(session_folder)
-    np.save(session_folder+'/weights.npy', aggregated_weights)
+    file_name=f"/weights_{round}.npy"
+    np.save(session_folder+file_name, aggregated_weights)
 
 def write_json_result_for_server(results, session_id):
     make_dir_if_not_exists('./server_results')
@@ -22,11 +23,11 @@ def write_json_result_for_server(results, session_id):
     with open(session_folder+'/result.json', 'w') as f:
         json.dump(results, f, indent=4)
 
-    rs=upload_folder_to_pinata(session_folder,penultimate_file='server_results')
-    print(rs)
+    # rs=upload_folder_to_pinata(session_folder,penultimate_file='server_results')
+    # print(rs)
 
 def write_json_result_for_client(data, session_id, client_id,round):
-    client_result = f'client_{client_id}_result'
+    client_result = f'client_results/client_{client_id}_result'
     make_dir_if_not_exists(client_result)
 
     session_folder =client_result+f'/{session_id}'

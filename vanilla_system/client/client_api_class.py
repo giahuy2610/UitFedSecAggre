@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import string
+from sklearn.model_selection import train_test_split
 import tensorflow as tf
 from tensorflow_privacy.privacy.optimizers import dp_optimizer_keras
 import flwr as fl
@@ -41,6 +42,10 @@ class ClientApi():
 
         self.session= data['session']
         self.wallet_address=None
+        self.data_categories = data['data_categories']
+        self.is_non_iid = data['is_non_iid']
+        self.clt_iid_data_path = data['clt_iid_data_path']
+        self.randomNum = data['randomNum']
         print("config json is imported ------")
 
 
@@ -141,19 +146,54 @@ class ClientApi():
         img_arr = np.array(img_arr)
         target_arr = np.array(target_arr)
         return img_arr, target_arr
+    
+    def load_img_non_iid(self,client_id):
+        img_arr = []
+        target_arr = []
+        index=int(client_id)
+        Categories=self.data_categories
+        datadir = self.clt_iid_data_path+'/' + Categories[index]
+            
+        for img_file in os.listdir(datadir):
+            # Đọc ảnh với OpenCV
+            img = cv2.imread(os.path.join(datadir, img_file),cv2.IMREAD_GRAYSCALE)
+            
+            # Resize ảnh về kích thước 64x64
+            img = cv2.resize(img, (64, 64))
+            
+            # Thêm ảnh vào mảng img_arr
+            img_arr.append(img)
+            
+            # Thêm nhãn tương ứng vào mảng target_arr
+            target_arr.append(Categories.index(Categories[index]))
+        
+        print(f'loaded category: {Categories[index]} successfully')
+        
+        # Chuyển đổi các mảng thành mảng NumPy
+        img_arr = np.array(img_arr)
+        img_arr=np.expand_dims(img_arr, axis=3)
+        target_arr = np.array(target_arr)
+    
+        #Tách dữ liệu thành tập train và tập test với tỉ lệ 90-10
+        img_arr, X_test, target_arr, y_test = train_test_split(img_arr, target_arr, test_size=0.1, random_state=42)
+        return img_arr, X_test, target_arr, y_test
 
     def launch_fl_session(self, client_id: string):
         data_path=self.clt_data_path+'client'+client_id+'/'
-        X_train,y_train= self.load_img('train', data_path)
-        if self.df_optimizer_type !=0:
+        if (self.is_non_iid):
+            X_train,X_test,y_train,y_test=self.load_img_non_iid(client_id)
+        else:
+            X_train,y_train= self.load_img('train', data_path)
+            X_test,y_test=self.load_img('test', data_path)
+            X_train,y_train=self.dataImblanced( X_train,y_train)
+
+        if self.df_optimizer_type ==1:
             # Làm tròn số lượng ảnh train về bội số của batch_size để số lượng ảnh chia hết cho microbatches
             round_size = (X_train.shape[0]//self.batch_size)*self.batch_size
             X_train = X_train[:round_size]
             y_train = y_train[:round_size]
-        X_train,y_train=self.dataImblanced( X_train,y_train)
         X_train = X_train.reshape(X_train.shape[0], self.img_width, self.img_height)
 
-        X_test,y_test=self.load_img('test', data_path)
         # X_train = X_train/255
         # X_test = X_test/255
 
