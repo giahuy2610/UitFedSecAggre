@@ -6,5 +6,4 @@ context
 **/server_results/**
 **/.cache/**
 **/api_key.json
-**/client_1_result/**
-**/client_2_result/**
+**/client_results/**
