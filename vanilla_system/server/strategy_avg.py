@@ -1,4 +1,5 @@
 import json
+import math
 import numpy as np
 from sklearn.metrics import f1_score
 import tensorflow as tf
@@ -22,14 +23,13 @@ from flwr.common import Scalar
 from flwr.common import NDArrays
 from functools import reduce
 from UitFedSecAggre.vanilla_system.Library.export_file_handler import save_weights
-from outlier_factor import cosine_similarity, cosine_similarity_normalization
 from UitFedSecAggre.vanilla_system.Library.reward_service import RewardService
 from tensorflow_privacy.privacy.optimizers import dp_optimizer_keras
 reward_service = RewardService()
 
 class StrategyAvg(fl.server.strategy.FedAvg): 
     #   FedAvg
-    def aggregate(self, results: List[Tuple[NDArrays, int]]) -> NDArrays:
+    def aggregate(self, results: List[Tuple[NDArrays, int]])-> NDArrays:
         """Compute weighted average."""
         # Calculate the total number of examples used during training
         num_examples_total = sum([num_examples for _, num_examples in results])
@@ -43,14 +43,7 @@ class StrategyAvg(fl.server.strategy.FedAvg):
             for layer in weights:
                 # Loop each layer
                 weighted_layer.append(layer * num_examples)
-            if (self.current_server_round > 1):
-                client_distance_array.append(cosine_similarity(weights[-1],self.weight_history[self.current_server_round - 2]))
-            weighted_weights.append(weighted_layer)
-    
-        print(client_distance_array)
-        client_distance_array = cosine_similarity_normalization(client_distance_array)
-        self.threshold = np.average(client_distance_array)
-        
+            weighted_weights.append(weighted_layer)        
         
         # Compute average weights of each layer
         weights_prime: NDArrays = [
@@ -58,8 +51,91 @@ class StrategyAvg(fl.server.strategy.FedAvg):
             for layer_updates in zip(*weighted_weights)
         ]
         
+        ''' REWARDING MECHANISM START '''
+        amountPerRound = 500
+        self.model_architecture.set_weights(weights_prime)
+        y_pred = self.model_architecture.predict(self.X_valid)
+        y_pred_bool = np.argmax(y_pred, axis=1)
+        #f1 score khi đầy đủ các client
+        f1_score_orginal = f1_score(self.y_valid, y_pred_bool , average="macro",zero_division=0)
+
+        # Compute contribution
+
+        # List of f1-score for each leave-one-out case
+        f1scoreLOO = []
+
+        # Loop to remove each client's local weight from global weight
+        for i in range(len(results)):
+            # Lưu weight không có sự đóng góp của client i
+            results_loo = []
+
+            for j in range(len(results)):
+                if (i != j):
+                    # Không sử dụng weight của client i
+                    results_loo.append(results[i])
+
+            #################BẮT ĐẦU FED AVG#############################
+            num_examples_total_loo = sum([num_examples for _, num_examples in results_loo])
+
+            # Create a list of weights, each multiplied by the related number of examples
+            weighted_weights_loo = []
+
+            for weights, num_examples in results_loo:
+                # Loop each client
+                weighted_layer = []
+                for layer in weights:
+                    # Loop each layer
+                    weighted_layer.append(layer * num_examples)
+
+                weighted_weights_loo.append(weighted_layer)
+
+            # Compute average weights of each layer
+            weights_prime_loo : NDArrays = [
+                reduce(np.add, layer_updates) / num_examples_total_loo
+                for layer_updates in zip(*weighted_weights_loo)
+            ]
+
+            self.model_architecture.set_weights(weights_prime_loo)
+            y_pred = self.model_architecture.predict(self.X_valid)
+            y_pred_bool = np.argmax(y_pred, axis=1)
+            # Lưu kết quả testing
+            f1scoreLOO.append(f1_score(self.y_valid, y_pred_bool , average="macro",zero_division=0))
+
+        # Lưu chênh lệch giữa ko có và có sự đóng góp của client i
+        f1scoreDeltaLOO = []
+        for i in range(len(results)):
+            delta = f1_score_orginal - f1scoreLOO[i]
+            f1scoreDeltaLOO.append(delta)
+            """
+                delta > 0 -> bỏ client i ra f1 score giảm -> client i có lợi
+                delta < 0 -> bỏ client i ra mô hình tốt hơn -> client i có hại
+            """
+
+        """ Nếu toàn bộ các client khi bỏ ra đều làm mô hình tốt lên (delta âm) -> mô hình đang overfitting -> chỉ giữ lại 1 nửa weight )"""
+        if all(delta < 0 for delta in f1scoreDeltaLOO):
+            # Trung vị
+            median = np.median(f1scoreDeltaLOO)
+            for i in range(len(results)):
+                # Nếu f1score của client i > median thì lấy tuyệt đối (để chút tính tiền chứ hiện tại đang âm)
+                # Ngược lại thì gán bằng 0 -> ko đc trả payoff
+                f1scoreDeltaLOO[i] = abs(f1scoreDeltaLOO[i]) if f1scoreDeltaLOO[i] > median else 0
+        
+        # tính tổng delta
+        sumF1scoreDelta = sum(f1scoreDeltaLOO)
+
+        # Proof of performance (trả theo đóng góp - dựa trên delta)
+        reward_scores_temp =   [(element / sumF1scoreDelta) * ( amountPerRound * 0.8) for element in f1scoreDeltaLOO]
+
+        # Proof of work (đồng đều, ai cũng được tiền)
+        reward_scores =   [element + ( amountPerRound * 0.2) for element in reward_scores_temp]
+
+        # Payoff of each client
+        payoffByClient = [int(math.floor(x + y)) for x, y in zip(reward_scores_temp, reward_scores)]
+        ''' REWARDING MECHANISM END '''
 
         self.weight_history.append(weights_prime[-1])
+        self.payoffByClient = payoffByClient
+
         return weights_prime
 
     def __init__(self,
@@ -139,6 +215,7 @@ class StrategyAvg(fl.server.strategy.FedAvg):
                 raise ValueError("Data is not set. Please set the model before calling aggregate_evaluate.")
             if self.X_valid is None:
                 raise ValueError("Data is not set. Please set the data before calling aggregate_evaluate.")
+        self.payoffByClient = []
 
     def custom_aggregate_fit(
         self,
@@ -163,6 +240,7 @@ class StrategyAvg(fl.server.strategy.FedAvg):
         ]
 
         parameters_aggregated = ndarrays_to_parameters(self.aggregate(weights_results))
+        
 
         # Aggregate custom metrics if aggregation fn was provided
         metrics_aggregated = {}
@@ -180,54 +258,18 @@ class StrategyAvg(fl.server.strategy.FedAvg):
         results: List[Tuple[ClientProxy, FitRes]],
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]],
     ) -> Tuple[Optional[Parameters], Dict[str, Scalar]]:
-        
-        # loop through the results and update contribution (pairs of key, value) where
-        # the key is the client id and the value is a dict of data size, sent size
-        # and num_rounds_participated: updated value
-        # total_data_size = 0
-        for resTuple in results:
-            res = resTuple[1]
-            self.clientId = res.metrics["client_id"]
-            
-            # results: List[Tuple[ClientProxy, FitRes]]
-            # FitRes: parameters: Parameters , num_examples: int , metrics: Optional[Metrics] = None
-            if server_round == 1:
-                self.dw_accp[self.clientId] = res.metrics["accuracy"]
-                self.dw_weight[self.clientId] = 1/len(results)
-            else:    
-                if res.metrics["accuracy"] > self.dw_accp[self.clientId]:
-                    self.dw_weight[self.clientId] *= 1+self.factor
-                elif res.metrics["accuracy"] > self.dw_accp[self.clientId]:
-                    self.dw_weight[self.clientId] *= 1-self.factor
-            
-            if res.metrics['client_id'] not in self.contribution.keys():
-                self.contribution[res.metrics["client_id"]]={
-                    "data_size":res.num_examples,
-                    "num_rounds_participated":1,
-                    "client_address":res.metrics['client_address']
-                }
-                self.contribution['total_data_size'] = self.contribution['total_data_size']+res.num_examples
-            else:
-                self.contribution[res.metrics["client_id"]]["num_rounds_participated"]+=1
-
-            # print("data size = ", res.num_examples)
-            # print("client id = ",clientId)
-            # print("client weight = ",self.dw_weight[clientId])
-
-        sumTemp = sum(self.dw_weight.values())
-        for i in self.dw_weight:
-            self.dw_weight[i] /= sumTemp
-            # print("client id = ", i)
-            # print("client weight after = ",self.dw_weight[i])
-
 
         aggregated_weights = self.custom_aggregate_fit(server_round, results, failures)
-        
+
         save_weights(aggregated_weights, self.session, server_round)
         if server_round == self.max_round:
-            for result in results:
+            for i in range(len(results)):
+                result = results[i]
+                payoff = self.payoffByClient[i]
                 wallet_address=result[1].metrics['wallet_address']
-                reward_service.payEveryoneEqually(wallet_address, 10)
+                print(f"payoff for client {result[1].metrics['client_id']} is {payoff}")
+                reward_service.pay(wallet_address, payoff)
+
         self.current_round_weight = parameters_to_ndarrays(aggregated_weights[0])
         return aggregated_weights
 

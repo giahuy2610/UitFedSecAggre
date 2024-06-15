@@ -14,7 +14,7 @@ with open('../Solidity/build/contracts/Reward.json') as f:
     reward_contract = web3.eth.contract(address=contract_address, abi=abi)
 
 class RewardService:
-    def payEveryoneEqually(self, address: str, amount: int):
+    def pay(self, address: str, amount: int):
         if web3.is_address(address):
             reward_contract.functions.addBalance(address, amount).transact({'from': web3.eth.accounts[0]})
         else:

@@ -45,6 +45,7 @@ class ClientApi():
         self.data_categories = data['data_categories']
         self.is_non_iid = data['is_non_iid']
         self.clt_iid_data_path = data['clt_iid_data_path']
+        self.clt_data_path = data['clt_data_path']
         self.randomNum = data['randomNum']
         print("config json is imported ------")
 
@@ -126,26 +127,59 @@ class ClientApi():
         for i in Categories:
             print(f'loading... category : {i}')
             path = os.path.join(datadir, i)
-            
-            for img_file in os.listdir(path):
-                # Đọc ảnh với OpenCV
-                img = cv2.imread(os.path.join(path, img_file),cv2.IMREAD_GRAYSCALE)
+            #Kiểm tra xem thư mục có tồn tại không
+            if os.path.isdir(path):
+                for img_file in os.listdir(path):
+                    # Đọc ảnh với OpenCV
+                    img = cv2.imread(os.path.join(path, img_file),cv2.IMREAD_GRAYSCALE)
+                    
+                    # Resize ảnh về kích thước 64x64
+                    img = cv2.resize(img, (int(self.img_width), int(self.img_height)))
+                    
+                    # Thêm ảnh vào mảng img_arr
+                    img_arr.append(img)
+                    
+                    # Thêm nhãn tương ứng vào mảng target_arr
+                    target_arr.append(Categories.index(i))
                 
-                # Resize ảnh về kích thước 64x64
-                img = cv2.resize(img, (int(self.img_width), int(self.img_height)))
-                
-                # Thêm ảnh vào mảng img_arr
-                img_arr.append(img)
-                
-                # Thêm nhãn tương ứng vào mảng target_arr
-                target_arr.append(Categories.index(i))
-            
-            print(f'loaded category: {i} successfully')
+                print(f'loaded category: {i} successfully')
         
         # Chuyển đổi các mảng thành mảng NumPy
         img_arr = np.array(img_arr)
         target_arr = np.array(target_arr)
         return img_arr, target_arr
+    
+    def load_img_non_iid_v2(self, datadir):
+        img_arr = []
+        target_arr = []
+        Categories = self.data_categories
+        
+        for i in Categories:
+            print(f'loading... category : {i}')
+            path = os.path.join(datadir, i)
+            #Kiểm tra xem thư mục có tồn tại không
+            if os.path.isdir(path):
+                for img_file in os.listdir(path):
+                    # Đọc ảnh với OpenCV
+                    img = cv2.imread(os.path.join(path, img_file),cv2.IMREAD_GRAYSCALE)
+                    
+                    # Resize ảnh về kích thước 64x64
+                    img = cv2.resize(img, (int(self.img_width), int(self.img_height)))
+                    
+                    # Thêm ảnh vào mảng img_arr
+                    img_arr.append(img)
+                    
+                    # Thêm nhãn tương ứng vào mảng target_arr
+                    target_arr.append(Categories.index(i))
+                
+                print(f'loaded category: {i} successfully')
+        
+        # Chuyển đổi các mảng thành mảng NumPy
+        img_arr = np.array(img_arr)
+        target_arr = np.array(target_arr)
+        #Tách dữ liệu thành tập train và tập test với tỉ lệ 90-10
+        img_arr, X_test, target_arr, y_test = train_test_split(img_arr, target_arr, test_size=0.1, random_state=42)
+        return img_arr, X_test, target_arr, y_test
     
     def load_img_non_iid(self,client_id):
         img_arr = []
@@ -179,10 +213,13 @@ class ClientApi():
         return img_arr, X_test, target_arr, y_test
 
     def launch_fl_session(self, client_id: string):
-        data_path=self.clt_data_path+'client'+client_id+'/'
+        
         if (self.is_non_iid):
-            X_train,X_test,y_train,y_test=self.load_img_non_iid(client_id)
+            data_path=self.clt_data_path+'client'+client_id+'/'
+            #X_train,X_test,y_train,y_test=self.load_img_non_iid(client_id)
+            X_train,X_test,y_train,y_test=self.load_img_non_iid_v2(data_path)
         else:
+            data_path=self.clt_iid_data_path+'client'+client_id+'/'
             X_train,y_train= self.load_img('train', data_path)
             X_test,y_test=self.load_img('test', data_path)
             X_train,y_train=self.dataImblanced( X_train,y_train)
