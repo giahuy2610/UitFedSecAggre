@@ -38,15 +38,18 @@ class ClientApi():
         self.batch_size = data['batch_size']
         self.learning_rate = data['learning_rate']
         self.clt_local_epochs = data['clt_local_epochs']
-        self.clt_data_path = data['clt_data_path']
+        self.clt_non_iid_data_path = data['clt_non_iid_data_path']
 
         self.session= data['session']
         self.wallet_address=None
         self.data_categories = data['data_categories']
+        self.detection_categories = data['detection_categories']
         self.is_non_iid = data['is_non_iid']
         self.clt_iid_data_path = data['clt_iid_data_path']
-        self.clt_data_path = data['clt_data_path']
+        self.clt_non_iid_data_path = data['clt_non_iid_data_path']
+        self.clt_detection_non_iid_data_path = data['clt_detection_non_iid_data_path']
         self.randomNum = data['randomNum']
+        self.isMalwareDetection = data['malware_detection']
         print("config json is imported ------")
 
 
@@ -86,7 +89,12 @@ class ClientApi():
     def loadModel(self):
         print("model json is importing ------")
         ##  Load model json``
-        with open('model.json','r') as file:
+        model_file = None
+        if self.isMalwareDetection==True:
+            model_file = 'model_detection.json'
+        else:
+            model_file = 'model.json'
+        with open(model_file,'r') as file:
             json_data = file.read()
         self.model_architecture = tf.keras.models.model_from_json(json_data)
         print("model json is imported ------")
@@ -135,12 +143,15 @@ class ClientApi():
                     
                     # Resize ảnh về kích thước 64x64
                     img = cv2.resize(img, (int(self.img_width), int(self.img_height)))
-                    
-                    # Thêm ảnh vào mảng img_arr
-                    img_arr.append(img)
-                    
-                    # Thêm nhãn tương ứng vào mảng target_arr
-                    target_arr.append(Categories.index(i))
+                    if self.isMalwareDetection == False:
+                        if i != "benign":
+                            # Thêm ảnh vào mảng img_arr
+                            img_arr.append(img)
+                            target_arr.append(Categories.index(i))
+                    else:
+                        # Thêm ảnh vào mảng img_arr
+                        img_arr.append(img)
+                        target_arr.append(0 if i == "benign" else 1) 
                 
                 print(f'loaded category: {i} successfully')
         
@@ -149,7 +160,34 @@ class ClientApi():
         target_arr = np.array(target_arr)
         return img_arr, target_arr
     
-    def load_img_non_iid_v2(self, datadir):
+    def load_img_detection_non_iid(self, data_type, datadir):
+        img_arr = []
+        target_arr = []
+        datadir = datadir + data_type
+        Categories = self.detection_categories
+        
+        for i in Categories:
+            path = os.path.join(datadir, i)
+            print(path)
+            #Kiểm tra xem thư mục có tồn tại không
+            if os.path.isdir(path):
+                print(f'loading... category : {i}')
+                for img_file in os.listdir(path):
+                    # Đọc ảnh với OpenCV
+                    img = cv2.imread(os.path.join(path, img_file),cv2.IMREAD_GRAYSCALE)
+                    
+                    # Resize ảnh về kích thước 64x64
+                    img = cv2.resize(img, (int(self.img_width), int(self.img_height)))
+                    img_arr.append(img)
+                    target_arr.append(0 if i == "benign" else 1) 
+                print(f'loaded category: {i} successfully')
+        
+        # Chuyển đổi các mảng thành mảng NumPy
+        img_arr = np.array(img_arr)
+        target_arr = np.array(target_arr)
+        return img_arr, target_arr
+    
+    def load_img_non_iid(self, datadir):
         img_arr = []
         target_arr = []
         Categories = self.data_categories
@@ -180,44 +218,18 @@ class ClientApi():
         #Tách dữ liệu thành tập train và tập test với tỉ lệ 90-10
         img_arr, X_test, target_arr, y_test = train_test_split(img_arr, target_arr, test_size=0.1, random_state=42)
         return img_arr, X_test, target_arr, y_test
-    
-    def load_img_non_iid(self,client_id):
-        img_arr = []
-        target_arr = []
-        index=int(client_id)
-        Categories=self.data_categories
-        datadir = self.clt_iid_data_path+'/' + Categories[index]
-            
-        for img_file in os.listdir(datadir):
-            # Đọc ảnh với OpenCV
-            img = cv2.imread(os.path.join(datadir, img_file),cv2.IMREAD_GRAYSCALE)
-            
-            # Resize ảnh về kích thước 64x64
-            img = cv2.resize(img, (64, 64))
-            
-            # Thêm ảnh vào mảng img_arr
-            img_arr.append(img)
-            
-            # Thêm nhãn tương ứng vào mảng target_arr
-            target_arr.append(Categories.index(Categories[index]))
-        
-        print(f'loaded category: {Categories[index]} successfully')
-        
-        # Chuyển đổi các mảng thành mảng NumPy
-        img_arr = np.array(img_arr)
-        img_arr=np.expand_dims(img_arr, axis=3)
-        target_arr = np.array(target_arr)
-    
-        #Tách dữ liệu thành tập train và tập test với tỉ lệ 90-10
-        img_arr, X_test, target_arr, y_test = train_test_split(img_arr, target_arr, test_size=0.1, random_state=42)
-        return img_arr, X_test, target_arr, y_test
 
     def launch_fl_session(self, client_id: string):
         
         if (self.is_non_iid):
-            data_path=self.clt_data_path+'client'+client_id+'/'
-            #X_train,X_test,y_train,y_test=self.load_img_non_iid(client_id)
-            X_train,X_test,y_train,y_test=self.load_img_non_iid_v2(data_path)
+            if(self.isMalwareDetection==True):
+                data_path=self.clt_detection_non_iid_data_path+'client'+client_id+'/'
+                X_train,y_train= self.load_img_detection_non_iid('train', data_path)
+                X_test,y_test=self.load_img_detection_non_iid('test', data_path)
+                print(X_train.shape)
+            else:
+                data_path=self.clt_non_iid_data_path+'client'+client_id+'/'
+                X_train,X_test,y_train,y_test=self.load_img_non_iid(data_path)
         else:
             data_path=self.clt_iid_data_path+'client'+client_id+'/'
             X_train,y_train= self.load_img('train', data_path)
@@ -246,8 +258,8 @@ class ClientApi():
         )
 
     def __init__(self) -> None:
-        self.loadModel()
         self.loadConfig()
+        self.loadModel()
         self.generate_cnn_model()
 
 

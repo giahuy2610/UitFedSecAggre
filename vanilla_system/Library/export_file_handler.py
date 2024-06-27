@@ -23,8 +23,8 @@ def write_json_result_for_server(results, session_id):
     with open(session_folder+'/result.json', 'w') as f:
         json.dump(results, f, indent=4)
 
-    # rs=upload_folder_to_pinata(session_folder,penultimate_file='server_results')
-    # print(rs)
+    rs=upload_folder_to_pinata(session_folder,penultimate_file='server_results')
+    print(rs)
 
 def write_json_result_for_client(data, session_id, client_id,round):
     client_result = f'client_results/client_{client_id}_result'

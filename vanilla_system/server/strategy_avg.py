@@ -2,6 +2,7 @@ import json
 import math
 import numpy as np
 from sklearn.metrics import f1_score
+from sklearn.preprocessing import MinMaxScaler
 import tensorflow as tf
 import os
 import cv2
@@ -29,14 +30,13 @@ reward_service = RewardService()
 
 class StrategyAvg(fl.server.strategy.FedAvg): 
     #   FedAvg
-    def aggregate(self, results: List[Tuple[NDArrays, int]])-> NDArrays:
+    def aggregate(self, results: List[Tuple[NDArrays, int]],client_parameters)-> NDArrays:
         """Compute weighted average."""
         # Calculate the total number of examples used during training
         num_examples_total = sum([num_examples for _, num_examples in results])
 
         # Create a list of weights, each multiplied by the related number of examples
         weighted_weights = []
-        client_distance_array = []
         for weights, num_examples in results:
             # Loop each client
             weighted_layer = []
@@ -52,7 +52,7 @@ class StrategyAvg(fl.server.strategy.FedAvg):
         ]
         
         ''' REWARDING MECHANISM START '''
-        amountPerRound = 500
+        amountPerRound = self.fl_budget
         self.model_architecture.set_weights(weights_prime)
         y_pred = self.model_architecture.predict(self.X_valid)
         y_pred_bool = np.argmax(y_pred, axis=1)
@@ -63,6 +63,12 @@ class StrategyAvg(fl.server.strategy.FedAvg):
 
         # List of f1-score for each leave-one-out case
         f1scoreLOO = []
+        scaler=self.scaler
+        
+        number_of_round=self.max_round
+        number_of_clients = len(results)
+        #Lấy ra từng client trong results 
+        client_id=[client_parameters[i][1].metrics['client_id'] for i in range(len(client_parameters))]
 
         # Loop to remove each client's local weight from global weight
         for i in range(len(results)):
@@ -102,40 +108,55 @@ class StrategyAvg(fl.server.strategy.FedAvg):
             f1scoreLOO.append(f1_score(self.y_valid, y_pred_bool , average="macro",zero_division=0))
 
         # Lưu chênh lệch giữa ko có và có sự đóng góp của client i
-        f1scoreDeltaLOO = []
+        f1scoreDeltaLOO = {}
         for i in range(len(results)):
             delta = f1_score_orginal - f1scoreLOO[i]
-            f1scoreDeltaLOO.append(delta)
+            idx=client_id[i]
+            f1scoreDeltaLOO[idx]=delta
             """
                 delta > 0 -> bỏ client i ra f1 score giảm -> client i có lợi
                 delta < 0 -> bỏ client i ra mô hình tốt hơn -> client i có hại
             """
-
+        #sort f1scoreDeltaLOO theo value
+        f1scoreDeltaLOO = dict(sorted(f1scoreDeltaLOO.items(), key=lambda item: item[1]))
+        #Minmax scaling các value trong f1scoreDeltaLOO
+        arr=scaler.fit_transform(np.array(list(f1scoreDeltaLOO.values())).reshape(-1,1)).reshape(-1)
+        #Gán lại value cho f1scoreDeltaLOO
+        f1scoreDeltaLOO={list(f1scoreDeltaLOO.keys())[i]:arr[i] for i in range(len(arr))}
         """ Nếu toàn bộ các client khi bỏ ra đều làm mô hình tốt lên (delta âm) -> mô hình đang overfitting -> chỉ giữ lại 1 nửa weight )"""
-        if all(delta < 0 for delta in f1scoreDeltaLOO):
+        if len([s for s in f1scoreDeltaLOO.values() if s < 0]) >= number_of_clients/2:
             # Trung vị
-            median = np.median(f1scoreDeltaLOO)
-            for i in range(len(results)):
+            median = np.median(list(f1scoreDeltaLOO))
+            for i in client_id:
                 # Nếu f1score của client i > median thì lấy tuyệt đối (để chút tính tiền chứ hiện tại đang âm)
                 # Ngược lại thì gán bằng 0 -> ko đc trả payoff
                 f1scoreDeltaLOO[i] = abs(f1scoreDeltaLOO[i]) if f1scoreDeltaLOO[i] > median else 0
         
+        #sort f1scoreDeltaLOO theo key 
+        f1scoreDeltaLOO = dict(sorted(f1scoreDeltaLOO.items(), key=lambda item: item[0]))
         # tính tổng delta
-        sumF1scoreDelta = sum(f1scoreDeltaLOO)
-
-        # Proof of performance (trả theo đóng góp - dựa trên delta)
-        reward_scores_temp =   [(element / sumF1scoreDelta) * ( amountPerRound * 0.8) for element in f1scoreDeltaLOO]
-
+        sumF1scoreDelta = sum(list(f1scoreDeltaLOO.values()))
         # Proof of work (đồng đều, ai cũng được tiền)
-        reward_scores =   [element + ( amountPerRound * 0.2) for element in reward_scores_temp]
+        reward_scores=amountPerRound * 0.2 / (number_of_clients* number_of_round)
+        payoffByClient = {}
+        for element in f1scoreDeltaLOO.keys():
 
-        # Payoff of each client
-        payoffByClient = [int(math.floor(x + y)) for x, y in zip(reward_scores_temp, reward_scores)]
-        ''' REWARDING MECHANISM END '''
+            # Proof of performance (trả theo đóng góp - dựa trên delta) 
+            reward_scores_temp =   (f1scoreDeltaLOO[element] / sumF1scoreDelta) * ( amountPerRound * 0.8/number_of_round)  
 
+            # Payoff of each client
+            payoffByClient[element] = int(math.floor(reward_scores_temp + reward_scores)) 
+            ''' REWARDING MECHANISM END '''
+        
         self.weight_history.append(weights_prime[-1])
-        self.payoffByClient = payoffByClient
-
+        print(f"payoffByClient reward: {payoffByClient}")
+        #Ghi lại số token cho client
+        for key in payoffByClient.keys():
+            if key in self.payoffByClient:
+                self.payoffByClient[key]+=payoffByClient[key]
+            else:
+                self.payoffByClient[key]=payoffByClient[key]
+        print(f"payoffByClient total: {self.payoffByClient}")
         return weights_prime
 
     def __init__(self,
@@ -187,6 +208,7 @@ class StrategyAvg(fl.server.strategy.FedAvg):
         self.weight_history = []
         self.current_server_round = 0
         self.he_enabled = he_enabled
+        self.scaler = MinMaxScaler()
 
         if self.he_enabled:
             print('running with HE')
@@ -203,11 +225,13 @@ class StrategyAvg(fl.server.strategy.FedAvg):
             self.img_dim = data["img_dim"]
             self.data_dir_path = data['data_dir_path']
             self.data_categories = data['data_categories']
+            self.fl_budget=data['fl_budget']
 
             self.df_optimizer_type = data["df_optimizer_type"]
             self.l2_norm_clip = data['df_l2_norm_clip']
             self.noise_multiplier = data['df_noise_multiplier']
             self.num_microbatches = data['df_num_microbatches']
+            self.isMalwareDetection = data['malware_detection']
             self.model=self.generate_cnn_model()
             self.X_valid, self.y_valid = self.load_img('valid', self.data_dir_path)
             self.current_round_weight=None
@@ -215,7 +239,7 @@ class StrategyAvg(fl.server.strategy.FedAvg):
                 raise ValueError("Data is not set. Please set the model before calling aggregate_evaluate.")
             if self.X_valid is None:
                 raise ValueError("Data is not set. Please set the data before calling aggregate_evaluate.")
-        self.payoffByClient = []
+        self.payoffByClient = {}
 
     def custom_aggregate_fit(
         self,
@@ -239,7 +263,7 @@ class StrategyAvg(fl.server.strategy.FedAvg):
             for _, fit_res in results
         ]
 
-        parameters_aggregated = ndarrays_to_parameters(self.aggregate(weights_results))
+        parameters_aggregated = ndarrays_to_parameters(self.aggregate(weights_results,results))
         
 
         # Aggregate custom metrics if aggregation fn was provided
@@ -262,12 +286,19 @@ class StrategyAvg(fl.server.strategy.FedAvg):
         aggregated_weights = self.custom_aggregate_fit(server_round, results, failures)
 
         save_weights(aggregated_weights, self.session, server_round)
+        # for i in range(len(results)):
+        #     result = results[i]
+        #     payoff = self.payoffByClient[i]
+        #     wallet_address=result[1].metrics['wallet_address']
+        #     print(f"payoff for client {result[1].metrics['client_id']} is {payoff}")
+        #     reward_service.pay(wallet_address, payoff)
         if server_round == self.max_round:
             for i in range(len(results)):
-                result = results[i]
-                payoff = self.payoffByClient[i]
+                result=results[i]
+                client_id = result[1].metrics['client_id']
+                payoff = self.payoffByClient[client_id]
                 wallet_address=result[1].metrics['wallet_address']
-                print(f"payoff for client {result[1].metrics['client_id']} is {payoff}")
+                print(f"payoff for client {client_id} is {payoff}")
                 reward_service.pay(wallet_address, payoff)
 
         self.current_round_weight = parameters_to_ndarrays(aggregated_weights[0])
@@ -311,7 +342,11 @@ class StrategyAvg(fl.server.strategy.FedAvg):
     
     def generate_cnn_model(self):
         print("cnn model is creating -----")
-        with open('model.json','r') as file:
+        if self.isMalwareDetection:
+            model_file = 'model_detection.json'
+        else:
+            model_file = 'model.json'
+        with open(model_file,'r') as file:
             json_data = file.read()
         self.model_architecture = tf.keras.models.model_from_json(json_data)
         match self.df_optimizer_type :
@@ -348,21 +383,25 @@ class StrategyAvg(fl.server.strategy.FedAvg):
         for i in Categories:
             print(f'loading... category : {i}')
             path = os.path.join(datadir, i)
-            
-            for img_file in os.listdir(path):
-                # Đọc ảnh với OpenCV
-                img = cv2.imread(os.path.join(path, img_file),cv2.IMREAD_GRAYSCALE)
+            #Kiểm tra xem thư mục có tồn tại không
+            if os.path.isdir(path):
+                for img_file in os.listdir(path):
+                    # Đọc ảnh với OpenCV
+                    img = cv2.imread(os.path.join(path, img_file),cv2.IMREAD_GRAYSCALE)
+                    
+                    # Resize ảnh về kích thước 64x64
+                    img = cv2.resize(img, (int(self.img_width), int(self.img_height)))
+                    if self.isMalwareDetection == False:
+                        if i != "benign":
+                            # Thêm ảnh vào mảng img_arr
+                            img_arr.append(img)
+                            target_arr.append(Categories.index(i))
+                    else:
+                        # Thêm ảnh vào mảng img_arr
+                        img_arr.append(img)
+                        target_arr.append(0 if i == "benign" else 1) 
                 
-                # Resize ảnh về kích thước 64x64
-                img = cv2.resize(img, (int(self.img_width), int(self.img_height)))
-                
-                # Thêm ảnh vào mảng img_arr
-                img_arr.append(img)
-                
-                # Thêm nhãn tương ứng vào mảng target_arr
-                target_arr.append(Categories.index(i))
-            
-            print(f'loaded category: {i} successfully')
+                print(f'loaded category: {i} successfully')
         
         # Chuyển đổi các mảng thành mảng NumPy
         img_arr = np.array(img_arr)
